@@ -1,0 +1,8 @@
+include:
+  - project: 'idmedia/ci-templates'
+    file: 'upstream-release-build.yml'
+
+variables:
+  UPSTREAM: https://github.com/ggml-org/llama.cpp.git
+  # Oldest release to build; v0.7.0 is the newest release when this was set up (Qwen3.8-Flash-Next needs a recent one)
+  MIN_TAG: v0.7.0
