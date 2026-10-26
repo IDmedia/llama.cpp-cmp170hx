@@ -41,7 +41,7 @@ RUN cmake -B build \
         -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined \
     && cmake --build build --config Release -j"$(nproc)" \
     && mkdir -p /out \
-    && cp build/bin/llama-server /out/ \
+    && cp build/bin/llama-server build/bin/llama-bench /out/ \
     && find build -name "*.so*" -exec cp -P {} /out/ \;
 
 # --- runtime ---

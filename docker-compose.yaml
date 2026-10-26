@@ -1,0 +1,129 @@
+# Qwen3.8-Flash-Next (huihui abliterated v2), 1x CMP 170HX 64GB
+#
+# Model:  UD-IQ4_XS, 93.7 GB on disk. That's 28.8 GB n-gram table (kept in system RAM) plus
+#         about 65 GB of layers and experts. --fit spills the few experts that don't fit
+#         onto the CPU.
+# Access: only on llm_backend, at http://llama-server:8080 (Bifrost provider "llamacpp").
+#
+# First run:
+#   cp .env.example .env                                  # fill in LLAMA_API_KEY
+#   docker compose --profile download run --rm model-download
+#   docker compose up -d
+services:
+  llama-server:
+    container_name: llama-server
+    cpuset: '16-27'
+    restart: always
+    environment:
+      - 'NVIDIA_VISIBLE_DEVICES=all'
+      - 'LLAMA_API_KEY=${LLAMA_API_KEY}'
+    volumes:
+      - './models:/models:ro'
+    networks:
+      - llm_backend
+    command:
+      - --model
+      - '/models/huihui/unsloth-UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf'
+      - --alias
+      - 'qwen3.8-flash-next'
+      # Placement is left to --fit (on by default): it offloads all layers and moves the experts that
+      # don't fit into system RAM, logging the result at startup. It gives up if you set --n-gpu-layers,
+      # --override-tensor or --tensor-split yourself.
+      # The 28.8 GB per-layer n-gram table is an input tensor, so llama.cpp always keeps it in RAM (it's a
+      # lookup table, a few KB read per token).
+      - --fit-target
+      - '1536'
+      # Read the CPU-side weights (n-gram table + offloaded experts, ~40 GB) into RAM once at startup.
+      # The defaults mmap the file and read the n-gram table from disk per token, which is slow
+      # through Unraid's /mnt/user (FUSE).
+      - --load-mode
+      - 'none'
+      - --lazy-mode
+      - 'off'
+      # To pin placement by hand instead: replace --fit-target with the lines below. Raise --n-cpu-moe
+      # until the model loads, then lower it as far as it still fits.
+      # - --fit
+      # - 'off'
+      # - --n-gpu-layers
+      # - '999'
+      # - --n-cpu-moe
+      # - '10'
+      # Only 12 of 48 layers have a KV cache (the rest are linear attention), so 256K context
+      # at q8_0 is only about 3 GB.
+      - --ctx-size
+      - '262144'
+      - --parallel
+      - '2'
+      - --kv-unified
+      - --flash-attn
+      - 'on'
+      - --cache-type-k
+      - 'q8_0'
+      - --cache-type-v
+      - 'q8_0'
+      # Larger batches amortise copying CPU-resident experts over the PCIe Gen2 x8 link during prefill.
+      - --batch-size
+      - '2048'
+      - --ubatch-size
+      - '1024'
+      - --threads                   # physical cores in the cpuset above
+      - '12'
+      - --jinja
+      - --temp
+      - '1.0'
+      - --top-k
+      - '20'
+      - --top-p
+      - '0.95'
+      - --min-p
+      - '0.0'
+      - --metrics
+      # MTP speculative decoding, off by default on one GPU: the 4.1 GB draft head pushes about 3 more
+      # expert layers onto the CPU. Try it and compare tok/s and the acceptance rate in the log.
+      # - --model-draft
+      # - '/models/unsloth/mtp-Qwen3.8-Flash-Next-Q8_0.gguf'
+      # - --spec-type
+      # - 'draft-mtp'
+      # - --spec-draft-n-max
+      # - '2'
+      # - --spec-draft-ngl
+      # - 'all'
+      # Vision (screenshots in BenAgent/opencode). Costs about 1 GB VRAM.
+      # - --mmproj
+      # - '/models/huihui/mmproj-Qwen3.8-Flash-Next-BF16.gguf'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      - 'net.unraid.docker.icon=https://docker-icons.int.idmedia.no/llama-cpp:latest'
+    image: registry.int.idmedia.no/idmedia/docker/llama.cpp-cmp170hx:latest
+
+  # One-shot downloader: docker compose --profile download run --rm model-download
+  model-download:
+    profiles: [download]
+    environment:
+      - 'HF_TOKEN=${HF_TOKEN:-}'
+    volumes:
+      - './models:/models'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        pip install -q -U "huggingface_hub[cli]"
+        hf download huihui-ai/Huihui-Qwen3.8-Flash-Next-abliterated-v2-GGUF \
+          --include "unsloth-UD-IQ4_XS/*.gguf" --include "mmproj-Qwen3.8-Flash-Next-BF16.gguf" \
+          --local-dir /models/huihui
+        hf download unsloth/Qwen3.8-Flash-Next-GGUF mtp-Qwen3.8-Flash-Next-Q8_0.gguf \
+          --local-dir /models/unsloth
+    labels:
+      - 'net.unraid.docker.icon=https://docker-icons.int.idmedia.no/llama-cpp:latest'
+    image: python:3.12-slim
+
+
+networks:
+  llm_backend:
+    external: true
