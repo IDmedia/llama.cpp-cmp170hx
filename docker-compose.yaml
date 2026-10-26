@@ -66,8 +66,10 @@ services:
       - '2048'
       - --ubatch-size
       - '1024'
-      - --threads                   # physical cores in the cpuset above
-      - '12'
+      # Fewer threads than the 12 CPUs in the cpuset: the CPU-side experts are most likely limited by RAM
+      # bandwidth, so more threads only compete for it. bench.sh: 8 threads 35.6 tok/s generation, 12 threads 34.5 (prefill 480 both).
+      - --threads
+      - '8'
       - --jinja
       - --temp
       - '1.0'
