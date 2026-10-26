@@ -18,10 +18,12 @@ acceptance look far better than it is.
 Save about 30 KB of text (roughly 8k tokens) as `./models/bench-prompt.txt`, then wrap it in a request:
 
 ```bash
-docker run --rm -v ./models:/models python:3.12-slim python -c 'import json; p = open("/models/bench-prompt.txt").read(); json.dump({"prompt": p, "n_predict": 256, "cache_prompt": False}, open("/models/bench-prompt.json", "w"))'
+docker run --rm -v ./models:/models python:3.12-slim python -c 'import json; p = open("/models/bench-prompt.txt").read(); json.dump({"prompt": p, "n_predict": 256, "ignore_eos": True, "seed": 42, "cache_prompt": False}, open("/models/bench-prompt.json", "w"))'
 ```
 
-`models/` is git-ignored, so the prompt stays local.
+`ignore_eos` makes every run generate the full `n_predict` tokens (otherwise the model can stop early, even
+after 0 tokens), and the fixed `seed` makes every run produce the same text. `models/` is git-ignored, so the
+prompt stays local.
 
 ### Running a measurement
 
@@ -39,7 +41,8 @@ run 3:           prefill   ...
 average (2):     prefill   ...
 ```
 
-`./bench.sh 5` does more runs. Under the hood each run is:
+`./bench.sh 5` does more runs. Runs that generated fewer tokens than `n_predict` are flagged and left out of the
+average. Under the hood each run is:
 
 ```bash
 docker exec llama-server sh -c 'curl -s localhost:8080/completion -H "Authorization: Bearer $LLAMA_API_KEY" -H "Content-Type: application/json" -d @/models/bench-prompt.json' | grep -o '"timings":{[^}]*}'
