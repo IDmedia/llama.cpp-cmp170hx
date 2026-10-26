@@ -28,7 +28,18 @@ docker run --rm -v ./models:/models python:3.12-slim python -c 'import json; p =
 1. Change one setting in `docker-compose.yaml` (e.g. `--threads`).
 2. Restart with `docker compose up -d` and wait until `docker compose ps` shows the server as healthy.
 3. Make sure nothing else (Bifrost clients) is using the server.
-4. Send the prompt three times, ignore the first result and compare the other two:
+4. Run [`./bench.sh`](bench.sh). It sends the prompt three times, treats the first as a warm-up and prints
+   prefill and generation speed for each run plus the average of the other two:
+
+```
+prompt: 6844 tokens, generated: 256 tokens
+run 1 (warm-up): prefill   470.4 tok/s   generation  37.48 tok/s
+run 2:           prefill   ...
+run 3:           prefill   ...
+average (2):     prefill   ...
+```
+
+`./bench.sh 5` does more runs. Under the hood each run is:
 
 ```bash
 docker exec llama-server sh -c 'curl -s localhost:8080/completion -H "Authorization: Bearer $LLAMA_API_KEY" -H "Content-Type: application/json" -d @/models/bench-prompt.json' | grep -o '"timings":{[^}]*}'
