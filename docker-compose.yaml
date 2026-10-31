@@ -1,18 +1,23 @@
-# Qwen3.8-Flash-Next (huihui abliterated v2), 1x CMP 170HX 64GB
+# Qwen3.8-Flash-Next (huihui abliterated v2), 2x CMP 170HX 64GB
 #
-# Model:  UD-IQ4_XS, 93.7 GB on disk. That's 28.8 GB n-gram table (kept in system RAM) plus
-#         about 65 GB of layers and experts. --fit spills the few experts that don't fit
-#         onto the CPU.
+# Model:  UD-IQ4_XS, 93.7 GB on disk. 28.8 GB n-gram table stays in system RAM (input tensor,
+#         a few KB read per token). The remaining ~65 GB of layers and experts now fit in VRAM
+#         across both cards, so nothing runs on the CPU and PCIe Gen2 x8 barely matters.
+# GPU 0:  gets ~80% of the model (+ KV cache). GPU 1 holds the rest plus the MTP draft head and
+#         mmproj, leaving ~50 GB free for speaches / comfy.
 # Access: only on llm_backend, at http://llama-server:8080 (Bifrost provider "llamacpp").
 #
 # First run:
 #   cp .env.example .env                                  # fill in LLAMA_API_KEY
 #   docker compose --profile download run --rm model-download
 #   docker compose up -d
+#
+# Tuning: check the startup log for per-GPU memory. If GPU 0 runs out, raise the second number in
+# --tensor-split; if you want more free VRAM on GPU 1, lower it.
 services:
   llama-server:
     container_name: llama-server
-    cpuset: '16-27'
+    cpuset: '16-23'
     restart: always
     environment:
       - 'NVIDIA_VISIBLE_DEVICES=all'
@@ -26,28 +31,24 @@ services:
       - '/models/huihui/unsloth-UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf'
       - --alias
       - 'qwen3.8-flash-next'
-      # Placement is left to --fit (on by default): it offloads all layers and moves the experts that
-      # don't fit into system RAM, logging the result at startup. It gives up if you set --n-gpu-layers,
-      # --override-tensor or --tensor-split yourself.
-      # The 28.8 GB per-layer n-gram table is an input tensor, so llama.cpp always keeps it in RAM (it's a
-      # lookup table, a few KB read per token).
-      - --fit-target
-      - '1536'
-      # Read the CPU-side weights (n-gram table + offloaded experts, ~40 GB) into RAM once at startup.
-      # The defaults mmap the file and read the n-gram table from disk per token, which is slow
-      # through Unraid's /mnt/user (FUSE).
+      # Manual placement (--fit off): all layers on GPU, layer split across both cards.
+      # Do not use row/tensor split: it would push every layer's traffic over the slow PCIe link.
+      - --fit
+      - 'off'
+      - --n-gpu-layers
+      - '999'
+      - --split-mode
+      - 'layer'
+      - --main-gpu
+      - '0'
+      - --tensor-split
+      - '56,14'
+      # Read the CPU-side weights (n-gram table, ~29 GB) into RAM once at startup instead of
+      # mmap-ing from Unraid's /mnt/user (FUSE) per token.
       - --load-mode
       - 'none'
       - --lazy-mode
       - 'off'
-      # To pin placement by hand instead: replace --fit-target with the lines below. Raise --n-cpu-moe
-      # until the model loads, then lower it as far as it still fits.
-      # - --fit
-      # - 'off'
-      # - --n-gpu-layers
-      # - '999'
-      # - --n-cpu-moe
-      # - '10'
       # Only 12 of 48 layers have a KV cache (the rest are linear attention), so 256K context
       # at q8_0 is only about 3 GB.
       - --ctx-size
@@ -61,15 +62,13 @@ services:
       - 'q8_0'
       - --cache-type-v
       - 'q8_0'
-      # Larger batches amortise copying CPU-resident experts over the PCIe Gen2 x8 link during prefill.
       - --batch-size
       - '2048'
       - --ubatch-size
       - '1024'
-      # Fewer threads than the 12 CPUs in the cpuset: the CPU-side experts are most likely limited by RAM
-      # bandwidth, so more threads only compete for it. bench.sh: 8 threads 35.6 tok/s generation, 12 threads 34.5 (prefill 480 both).
+      # CPU is no longer in the hot path.
       - --threads
-      - '8'
+      - '4'
       - --jinja
       - --temp
       - '1.0'
@@ -80,19 +79,20 @@ services:
       - --min-p
       - '0.0'
       - --metrics
-      # MTP speculative decoding, off by default on one GPU: the 4.1 GB draft head pushes about 3 more
-      # expert layers onto the CPU. Try it and compare tok/s and the acceptance rate in the log.
-      # - --model-draft
-      # - '/models/unsloth/mtp-Qwen3.8-Flash-Next-Q8_0.gguf'
-      # - --spec-type
-      # - 'draft-mtp'
-      # - --spec-draft-n-max
-      # - '2'
-      # - --spec-draft-ngl
-      # - 'all'
+      # MTP speculative decoding, now enabled: the 4.1 GB draft head fits on the second GPU.
+      # Compare tok/s and the acceptance rate in the log; try --spec-draft-n-max 2 or 3.
+      # If it doesn't help, comment out this block.
+      - --model-draft
+      - '/models/unsloth/mtp-Qwen3.8-Flash-Next-Q8_0.gguf'
+      - --spec-type
+      - 'draft-mtp'
+      - --spec-draft-n-max
+      - '3'
+      - --spec-draft-ngl
+      - 'all'
       # Vision (screenshots in BenAgent/opencode). Costs about 1 GB VRAM.
-      # - --mmproj
-      # - '/models/huihui/mmproj-Qwen3.8-Flash-Next-BF16.gguf'
+      - --mmproj
+      - '/models/huihui/mmproj-Qwen3.8-Flash-Next-BF16.gguf'
     deploy:
       resources:
         reservations:

@@ -42,7 +42,8 @@ average (2):     prefill   ...
 ```
 
 `./bench.sh 5` does more runs. Runs that generated fewer tokens than `n_predict` are flagged and left out of the
-average. Under the hood each run is:
+average. With MTP enabled each run also shows how many drafted tokens were accepted, e.g.
+`draft 180/300 accepted (60%)`. Generation speed then varies a lot more between runs, so use 6 or more. Under the hood each run is:
 
 ```bash
 docker exec llama-server sh -c 'curl -s localhost:8080/completion -H "Authorization: Bearer $LLAMA_API_KEY" -H "Content-Type: application/json" -d @/models/bench-prompt.json' | grep -o '"timings":{[^}]*}'

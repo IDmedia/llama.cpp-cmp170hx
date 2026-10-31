@@ -4,6 +4,8 @@
 # Usage: ./bench.sh [runs]
 #   runs  number of requests (default 3). The first is a warm-up and isn't counted in the average.
 #         Runs that generated fewer tokens than the prompt's n_predict are flagged and not counted either.
+#         With MTP / a draft model, each run also shows how many drafted tokens were accepted. Generation
+#         speed then varies more between runs, so use more runs (e.g. ./bench.sh 6).
 #
 # CONTAINER and PROMPT (path inside the container) can be overridden through the environment.
 set -eu
@@ -25,6 +27,8 @@ expected=$(docker exec "$CONTAINER" cat "$PROMPT" | sed -n 's/.*"n_predict": *\(
 
 pp_sum=0
 tg_sum=0
+drafted_sum=0
+accepted_sum=0
 counted=0
 i=1
 while [ "$i" -le "$RUNS" ]; do
@@ -37,8 +41,15 @@ while [ "$i" -le "$RUNS" ]; do
     tg=$(field "$timings" predicted_per_second)
     generated=$(field "$timings" predicted_n)
     generated=${generated:-0}
+    # Only present with speculative decoding (MTP / draft model).
+    drafted=$(field "$timings" draft_n)
+    accepted=$(field "$timings" draft_n_accepted)
     label="run $i:"
     note=""
+    draft=""
+    if [ -n "$drafted" ] && [ "$drafted" -gt 0 ]; then
+        draft=$(awk "BEGIN { printf \"   draft %d/%d accepted (%.0f%%)\", ${accepted:-0}, $drafted, 100 * ${accepted:-0} / $drafted }")
+    fi
     if [ "$i" -eq 1 ]; then
         label="run 1 (warm-up):"
         echo "prompt: $(field "$timings" prompt_n) tokens, generated: $generated tokens"
@@ -47,14 +58,20 @@ while [ "$i" -le "$RUNS" ]; do
     else
         pp_sum=$(awk "BEGIN { print $pp_sum + $pp }")
         tg_sum=$(awk "BEGIN { print $tg_sum + $tg }")
+        drafted_sum=$((drafted_sum + ${drafted:-0}))
+        accepted_sum=$((accepted_sum + ${accepted:-0}))
         counted=$((counted + 1))
     fi
-    line "$label" "$pp" "${tg:-0}" "$note"
+    line "$label" "$pp" "${tg:-0}" "$draft$note"
     i=$((i + 1))
 done
 
 if [ "$counted" -gt 0 ]; then
-    line "average ($counted):" "$pp_sum / $counted" "$tg_sum / $counted" ""
+    draft=""
+    if [ "$drafted_sum" -gt 0 ]; then
+        draft=$(awk "BEGIN { printf \"   draft %.0f%% accepted\", 100 * $accepted_sum / $drafted_sum }")
+    fi
+    line "average ($counted):" "$pp_sum / $counted" "$tg_sum / $counted" "$draft"
 elif [ "$RUNS" -gt 1 ]; then
     echo "no complete runs to average; add \"ignore_eos\": true to the prompt (see README)" >&2
     exit 1
