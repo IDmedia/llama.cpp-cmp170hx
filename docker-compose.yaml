@@ -1,3 +1,7 @@
+# BENCHMARK VARIANT: MTP with --spec-draft-n-max 3
+# Run: docker compose -f compose.bench-mtp3.yaml up -d   (back to normal: docker compose up -d)
+# Otherwise identical to docker-compose.yaml.
+#
 # Qwen3.8-Flash-Next (huihui abliterated v2), 2x CMP 170HX 64GB
 #
 # Model:  UD-IQ4_XS, 93.7 GB on disk. 28.8 GB n-gram table stays in system RAM (input tensor,
@@ -19,6 +23,11 @@ services:
     container_name: llama-server
     cpuset: '16-23'
     restart: always
+    # Uses ~44 GB (28.8 GB n-gram table + --cache-ram + buffers). The limit makes a runaway kill only this
+    # container (restart: always brings it back) instead of freezing the host. Raise it if the server
+    # gets OOM-killed during normal use.
+    mem_limit: 50g
+    memswap_limit: 50g
     environment:
       - 'NVIDIA_VISIBLE_DEVICES=all'
       - 'LLAMA_API_KEY=${LLAMA_API_KEY}'
@@ -53,9 +62,21 @@ services:
       # at q8_0 is only about 3 GB.
       - --ctx-size
       - '262144'
+      # Prefill is ~800 tok/s on these cards, so a re-read 27K-token chat prompt costs ~35 s; everything below
+      # is about keeping the prompt cache. 3 slots: BenAgent's background memory calls and opencode no longer
+      # take the slot holding a chat's cache (the shared --kv-unified cache makes an extra slot cheap).
       - --parallel
-      - '2'
+      - '3'
       - --kv-unified
+      # Most layers are linear attention, so a slot can only rewind to a saved checkpoint, not to any token.
+      # More checkpoints (default 8) = more places to resume from when a prompt differs near the end.
+      - --ctx-checkpoints
+      - '32'
+      # Prompts pushed out of a slot are kept in system RAM (MiB) and restored when the chat comes back,
+      # instead of being read again. Look for "cache state" lines in the log. 4 GB, was 16: the host has no swap, and with ComfyUI
+      # holding its models the server ran out of memory (2026-11-14).
+      - --cache-ram
+      - '4096'
       - --flash-attn
       - 'on'
       - --cache-type-k
