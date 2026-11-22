@@ -1,7 +1,3 @@
-# BENCHMARK VARIANT: MTP with --spec-draft-n-max 3
-# Run: docker compose -f compose.bench-mtp3.yaml up -d   (back to normal: docker compose up -d)
-# Otherwise identical to docker-compose.yaml.
-#
 # Qwen3.8-Flash-Next (huihui abliterated v2), 2x CMP 170HX 64GB
 #
 # Model:  UD-IQ4_XS, 93.7 GB on disk. 28.8 GB n-gram table stays in system RAM (input tensor,
@@ -101,14 +97,15 @@ services:
       - '0.0'
       - --metrics
       # MTP speculative decoding, now enabled: the 4.1 GB draft head fits on the second GPU.
-      # Compare tok/s and the acceptance rate in the log; try --spec-draft-n-max 2 or 3.
+      # Draft length: 3 gave 91% acceptance in bench.sh. Override without editing this file to compare,
+      # e.g. SPEC_DRAFT_N_MAX=5 docker compose up -d, then ./bench.sh 6 (see README).
       # If it doesn't help, comment out this block.
       - --model-draft
       - '/models/unsloth/mtp-Qwen3.8-Flash-Next-Q8_0.gguf'
       - --spec-type
       - 'draft-mtp'
       - --spec-draft-n-max
-      - '3'
+      - '${SPEC_DRAFT_N_MAX:-3}'
       - --spec-draft-ngl
       - 'all'
       # Vision (screenshots in BenAgent/opencode). Costs about 1 GB VRAM.

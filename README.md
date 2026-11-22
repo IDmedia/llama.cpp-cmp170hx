@@ -65,6 +65,22 @@ docker exec llama-server sh -c 'curl -s localhost:8080/completion -H "Authorizat
 `--threads` can't usefully go above the number of CPUs in `cpuset`; widen `cpuset` first to test more. Use
 physical cores only (check with `lscpu -e` on the host; hyperthread siblings share a `CORE`).
 
+### MTP draft length
+
+`--spec-draft-n-max` (default 3) can be overridden from the shell, so comparing values needs no edit. Use
+6 or more runs, since speculative decoding makes generation speed vary more:
+
+```bash
+SPEC_DRAFT_N_MAX=4 docker compose up -d   # wait for healthy
+./bench.sh 6
+SPEC_DRAFT_N_MAX=5 docker compose up -d
+./bench.sh 6
+docker compose up -d                      # back to the default
+```
+
+Higher values only help while acceptance stays high: each rejected draft token is wasted work.
+To keep a better value, change the default in `${SPEC_DRAFT_N_MAX:-3}` in `docker-compose.yaml`.
+
 ### llama-bench (for the two-card setup)
 
 The image also contains `llama-bench`, which sweeps several values in one run (e.g. `-ub 512,1024,2048`).
