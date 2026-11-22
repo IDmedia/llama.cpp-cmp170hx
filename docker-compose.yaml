@@ -97,15 +97,15 @@ services:
       - '0.0'
       - --metrics
       # MTP speculative decoding, now enabled: the 4.1 GB draft head fits on the second GPU.
-      # Draft length: 3 gave 91% acceptance in bench.sh. Override without editing this file to compare,
-      # e.g. SPEC_DRAFT_N_MAX=5 docker compose up -d, then ./bench.sh 6 (see README).
+      # Draft length: 5 measured best in bench.sh (76.0 tok/s vs 72.5 at 3, 75.3 at 4; 2026-11-22). Override to compare,
+      # e.g. SPEC_DRAFT_N_MAX=3 docker compose up -d, then ./bench.sh 6 (see README).
       # If it doesn't help, comment out this block.
       - --model-draft
       - '/models/unsloth/mtp-Qwen3.8-Flash-Next-Q8_0.gguf'
       - --spec-type
       - 'draft-mtp'
       - --spec-draft-n-max
-      - '${SPEC_DRAFT_N_MAX:-3}'
+      - '${SPEC_DRAFT_N_MAX:-5}'
       - --spec-draft-ngl
       - 'all'
       # Vision (screenshots in BenAgent/opencode). Costs about 1 GB VRAM.
